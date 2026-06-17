@@ -1,0 +1,163 @@
+# Project structure
+
+prism/
+├── environments/
+│   ├── base_env.py
+│   ├── minigrid_env.py
+│   └── wrappers.py
+├── world_model/
+│   ├── base_world_model.py
+│   └── perfect_world_model.py
+├── reward/
+│   ├── base_reward.py
+│   └── minigrid_dense_reward.py
+├── planner/
+│   ├── base_planner.py
+│   └── mcts.py
+├── agent/
+│   ├── base_agent.py
+│   ├── policy.py
+│   └── meta_agent.py
+├── imitation/
+│   ├── base_imitation.py
+│   └── behavioral_cloning.py
+├── meta_learning/
+│   ├── base_meta_learner.py
+│   └── reptile.py
+├── tasks/
+│   ├── base_task.py
+│   └── minigrid_tasks.py
+├── training/
+│   ├── meta_trainer.py
+│   └── inner_loop.py
+├── evaluation/
+│   └── evaluator.py
+├── utils/
+│   ├── trajectory.py
+│   ├── logging.py
+│   └── config.py
+└── main.py
+
+# File descriptions
+
+`environments/base_env.py`
+
+Abstract base class BaseEnv wrapping any RL environment. Defines the interface: reset() -> obs, step(action) -> (obs, reward, done, info), get_state() -> state, set_state(state). The get_state/set_state methods are critical for MCTS — they allow the world model to snapshot and restore environment state. All concrete environments must implement this interface.
+
+`environments/minigrid_env.py`
+
+Concrete class MiniGridEnv(BaseEnv) wrapping a MiniGrid gymnasium environment. Handles MiniGrid-specific observation preprocessing (flattening the image observation, extracting agent position and direction). Implements get_state/set_state using MiniGrid's internal state representation.
+
+`environments/wrappers.py`
+
+Utility wrappers such as FlatObsWrapper (flattens dict observations to a single vector) and StateCapturableWrapper (adds get_state/set_state to any env that supports it via gymnasium's unwrapped). These are composable and applied at construction time.
+
+---
+
+`world_model/base_world_model.py`
+
+Abstract base class BaseWorldModel. Interface: step(state, action) -> (next_state, reward, done) and reset(task) -> initial_state. This is the interface MCTS uses for all rollouts. Concrete implementations can be a perfect simulator, a learned neural model, or anything else.
+
+`world_model/perfect_world_model.py`
+
+Concrete class PerfectWorldModel(BaseWorldModel) that delegates directly to the real environment via get_state/set_state. Since the environment is deterministic and fully simulated, this is a zero-cost perfect world model. This is the starting implementation; swap it later for a learned model without changing anything else.
+
+---
+
+`reward/base_reward.py`
+
+Abstract base class BaseReward. Interface: compute(trajectory: Trajectory, task: BaseTask) -> float and compute_dense(state, task: BaseTask) -> float. The trajectory-level method is used to rank MCTS rollouts. The dense per-step method is used inside MCTS to guide search. Keeping both here means the same module serves both purposes.
+
+`reward/minigrid_dense_reward.py`
+
+Concrete class MiniGridDenseReward(BaseReward). Implements dense reward as negative Manhattan distance between agent position and goal position extracted from the task specification. Implements trajectory-level reward as the maximum dense reward achieved at any step in the trajectory. Task specification provides goal coordinates.
+
+---
+
+`planner/base_planner.py`
+
+Abstract base class BasePlanner. Interface: plan(initial_state, task: BaseTask, world_model: BaseWorldModel, reward: BaseReward, policy) -> list[Trajectory]. Returns a ranked list of trajectories from best to worst. The policy argument is optional — planners can use it as a prior over actions or ignore it entirely.
+
+`planner/mcts.py`
+
+Concrete class MCTSPlanner(BasePlanner). Implements Monte Carlo Tree Search using the world model for rollouts and the reward module for node evaluation. Configurable parameters: n_simulations, max_depth, exploration_constant (UCB1 C parameter), n_rollouts_returned. Uses the policy's action probabilities as a prior for child node selection if provided (AlphaZero style), otherwise uses uniform prior. Returns the top-k trajectories sorted by cumulative reward.
+
+---
+
+`agent/policy.py`
+
+Class Policy. A small neural network (MLP or CNN depending on observation type) that maps observations to action logits and a value estimate. Two heads: action head (softmax output) and value head (scalar). The value head is used optionally as a rollout evaluator inside MCTS. Weights are what the meta-learner operates on.
+
+`agent/base_agent.py`
+
+Abstract base class BaseAgent. Interface: act(obs) -> action, update(trajectories: list[Trajectory]), get_params() -> dict, set_params(dict). The get_params/set_params interface is what the meta-learner uses to save/restore and interpolate weights.
+
+`agent/meta_agent.py`
+
+Concrete class MetaAgent(BaseAgent). Wraps a Policy and exposes the full agent interface. Holds the current policy parameters. The update method delegates to the imitation learner. This is the object the meta-learner clones and modifies during the inner loop.
+
+---
+
+`imitation/base_imitation.py`
+
+Abstract base class BaseImitationLearner. Interface: update(agent: BaseAgent, trajectories: list[Trajectory]) -> loss. Takes an agent and a list of demonstrated trajectories, performs one or more gradient steps, returns the loss value for logging.
+
+`imitation/behavioral_cloning.py`
+
+Concrete class BehavioralCloning(BaseImitationLearner). Implements standard behavioral cloning: cross-entropy loss between the agent's action logits and the actions in the demonstrated trajectories. Configurable: n_gradient_steps, learning_rate, batch_size. Operates on the top trajectory/trajectories returned by the planner.
+
+---
+
+`meta_learning/base_meta_learner.py`
+
+Abstract base class BaseMetaLearner. Interface: meta_update(agent: BaseAgent, task_results: list[dict]) where each dict contains pre- and post-update parameters and the evaluation reward. Performs the outer loop update to the agent's initial weights.
+
+`meta_learning/reptile.py`
+
+Concrete class ReptileMetaLearner(BaseMetaLearner). Implements the Reptile algorithm: after each inner loop, nudge the meta-parameters toward the updated parameters by a step size epsilon. Simple, no second-order gradients needed. Configurable: meta_lr (outer loop step size), n_inner_steps.
+
+---
+
+`tasks/base_task.py`
+
+Abstract base class BaseTask. Holds a task specification that is passed to the reward function and environment. Interface: get_spec() -> dict (returns whatever the reward function needs to evaluate progress), get_env_config() -> dict (returns whatever the environment needs to instantiate this task). Keeps task definition separate from environment and reward logic.
+
+`tasks/minigrid_tasks.py`
+
+Concrete class MiniGridTask(BaseTask). Represents a single MiniGrid task — e.g. reach a goal position, fetch an object. Stores goal coordinates or object identity. Implements a TaskSampler class that procedurally samples new MiniGridTask instances for meta-training, controlling difficulty (grid size, number of obstacles, task type).
+
+---
+
+`training/inner_loop.py`
+
+Function run_inner_loop(agent, task, world_model, planner, reward_fn, imitation_learner) -> dict. Executes one full inner loop for a single task: run MCTS to get trajectories, rank them, run behavioral cloning update on the agent, return a dict with the trajectories, loss, and updated parameters. This is the unit the meta-trainer calls repeatedly.
+
+`training/meta_trainer.py`
+
+Class MetaTrainer. Orchestrates the full meta-training loop. Holds references to all modules (agent, world model, planner, reward, imitation learner, meta-learner, task sampler). Each meta-iteration: sample a batch of tasks, clone the agent, run run_inner_loop for each task, collect results, call meta_learner.meta_update. Configurable: n_meta_iterations, tasks_per_batch. Calls the logger and evaluator at regular intervals.
+
+---
+
+`evaluation/evaluator.py`
+
+Class Evaluator. Runs evaluation of the current meta-agent on a held-out set of tasks. For each task: clone the agent, run the inner loop, then execute the updated policy in the real environment (not the world model) for n_eval_episodes. Records success rate and mean return. Produces a summary dict for logging.
+
+---
+
+`utils/trajectory.py`
+
+Dataclass Trajectory. Fields: states: list, actions: list, rewards: list, done: bool, total_reward: float. Helper methods: length(), to_tensors() (converts to PyTorch tensors for training). This is the shared data structure passed between planner, reward, and imitation learner.
+
+`utils/logging.py`
+
+Class Logger. Thin wrapper around Python's logging module plus optional wandb integration. Methods: log_scalar(key, value, step), log_trajectory(trajectory, step), log_config(config). Controlled by a flag so wandb can be disabled for local runs.
+
+`utils/config.py`
+
+Dataclass Config (or use Hydra/OmegaConf if Gemini prefers). Holds all hyperparameters organized by module: mcts, reptile, behavioral_cloning, training, evaluation. Loaded from a YAML file at startup. Each module receives only its own sub-config, keeping coupling low.
+
+---
+
+main.py
+
+Entry point. Parses config, instantiates all modules by injecting dependencies explicitly (no global state), constructs MetaTrainer, calls trainer.run(). The explicit dependency injection here is what makes swapping modules easy — to replace the reward function, change one line in main.py.

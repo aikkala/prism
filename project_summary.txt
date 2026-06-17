@@ -1,0 +1,44 @@
+# PRISM
+Planning via Rollout Imagination for Sample-efficient Meta-learning
+
+## Overview
+PRISM is a modular Python framework for training a meta-learning agent capable of rapidly adapting to new tasks from very few rollouts. The core idea is to offload exploration to Monte Carlo Tree Search (MCTS) over a frozen world model, use the best discovered trajectories as demonstrations for imitation learning, and use meta-learning to make that imitation update maximally efficient — ideally solving a new task from one or two trajectories.
+
+## Pipeline
+
+- MCTS planning — given a new task, the agent searches for high-reward trajectories using a frozen world model
+- Trajectory ranking — trajectories are scored by a reward module
+- Imitation learning (inner loop) — the agent's policy is updated via behavioral cloning on the best trajectories
+- Meta-learning (outer loop) — across many tasks, the agent's initial weights are optimized so that the inner loop update is as effective as possible
+- Execution — the updated policy is executed directly in the real environment; no MCTS at inference time
+
+
+## Initial Implementation
+
+- Environment: MiniGrid (via Gymnasium), using the perfect simulator as the world model
+- World model: Perfect world model delegating to the real environment via get_state/set_state
+- Reward: Pretrained goal-conditioned value function, loaded as a frozen module and wrapped behind the reward interface. Sourced from an existing MiniGrid/BabyAI research codebase if available; otherwise trained separately with standard RL (e.g. PPO) and frozen. Used both for per-step MCTS guidance and trajectory ranking.
+- Planner: MCTS with UCB1 selection, configurable simulation budget and depth, returns top-k trajectories sorted by cumulative reward
+- Imitation learner: Behavioral cloning, cross-entropy loss on actions from the best MCTS trajectory
+- Meta-learner: Reptile — after each inner loop, nudge meta-parameters toward the updated parameters by a step size epsilon
+- Policy: Small MLP mapping flat observations to action logits (policy head) and value estimate (value head)
+- Tasks: Procedurally sampled MiniGrid tasks (navigation, object fetching) with a TaskSampler class
+
+
+## Modularity Requirements
+Every cross-module interaction must go through an abstract base class. Concrete implementations are selected and injected in main.py only — no module imports a concrete class from another module. This ensures the following swaps require zero changes outside main.py and the new concrete class:
+
+- World model: perfect simulator → learned neural world model
+- Reward function: pretrained value function → LLM evaluator
+- Environment: MiniGrid → Some other environment
+- Meta-learner: Reptile → MAML
+- Imitation learner: behavioral cloning → DAgger or similar
+
+
+## Configuration
+All hyperparameters stored in a YAML config file, organized by module (mcts, reptile, behavioral_cloning, training, evaluation). Each module receives only its own sub-config. Logger supports optional wandb integration, toggled by a flag.
+
+## Future Extensions (not in scope for v1)
+
+- Replace PerfectWorldModel with a learned neural world model
+- Replace MiniGridValueFunctionReward with an LLM-based trajectory evaluator
