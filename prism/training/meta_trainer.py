@@ -1,5 +1,6 @@
 import copy
 from typing import List, Dict, Any
+from prism.environments.base_env import BaseEnv
 from prism.agent.base_agent import BaseAgent
 from prism.world_model.base_world_model import BaseWorldModel
 from prism.planner.base_planner import BasePlanner

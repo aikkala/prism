@@ -5,6 +5,7 @@ from prism.world_model.base_world_model import BaseWorldModel
 from prism.planner.base_planner import BasePlanner
 from prism.reward.base_reward import BaseReward
 from prism.imitation.base_imitation import BaseImitationLearner
+from prism.utils.trajectory import Trajectory
 
 def run_inner_loop(
     agent: BaseAgent,
@@ -54,4 +55,4 @@ def run_inner_loop(
         'eval_reward': total_reward
     }
 
-    }
+

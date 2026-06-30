@@ -14,6 +14,9 @@ from prism.training.meta_trainer import MetaTrainer
 from prism.evaluation.evaluator import Evaluator
 
 def main():
+    # Optimize CPU operations for small neural network models
+    torch.set_num_threads(1)
+    
     # 1. Load config
     config = Config()
     

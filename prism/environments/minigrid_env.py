@@ -1,7 +1,7 @@
 import gymnasium as gym
 from minigrid.wrappers import FlatObsWrapper
 from prism.environments.base_env import BaseEnv
-from typing import Any, Tuple
+from typing import Any, Tuple, Optional
 
 class MiniGridEnv(BaseEnv):
     def __init__(self, env_id: str = "MiniGrid-Empty-8x8-v0", **kwargs):
@@ -28,7 +28,7 @@ class MiniGridEnv(BaseEnv):
                 # Place new goal
                 grid.set(goal_pos[0], goal_pos[1], Goal())
                 # Re-generate observation after grid change
-                obs = self.env.observation(self.env.gen_obs())
+                obs = self.env.observation(self.env.unwrapped.gen_obs())
         return obs
 
     def step(self, action: Any) -> Tuple[Any, float, bool, dict]:

@@ -112,7 +112,15 @@ class MCTSPlanner(BasePlanner):
             full_states.extend(rollout_states[1:])
             full_actions.extend(rollout_actions)
             
-            full_traj = Trajectory(states=full_states, actions=full_actions)
+            # Helper to convert state to observation
+            def get_obs(state):
+                raw_obs = state.gen_obs()
+                if hasattr(world_model, 'env'):
+                    return world_model.env.process_obs(raw_obs)
+                return raw_obs
+
+            full_obs = [get_obs(s) for s in full_states]
+            full_traj = Trajectory(states=full_states, actions=full_actions, observations=full_obs)
             total_reward = reward_fn.compute(full_traj, task)
             
             while node:
@@ -120,14 +128,21 @@ class MCTSPlanner(BasePlanner):
                 node.value += total_reward
                 node = node.parent
 
-        return self._extract_top_k(root, task, reward_fn)
+        return self._extract_top_k(root, task, reward_fn, world_model)
 
-    def _extract_top_k(self, root: MCTSNode, task: BaseTask, reward_fn: BaseReward) -> List[Trajectory]:
+    def _extract_top_k(self, root: MCTSNode, task: BaseTask, reward_fn: BaseReward, world_model: BaseWorldModel) -> List[Trajectory]:
         trajectories = []
+        
+        def get_obs(state):
+            raw_obs = state.gen_obs()
+            if hasattr(world_model, 'env'):
+                return world_model.env.process_obs(raw_obs)
+            return raw_obs
         
         def find_paths(node, current_states, current_actions):
             if not node.children:
-                traj = Trajectory(states=list(current_states), actions=list(current_actions))
+                current_obs = [get_obs(s) for s in current_states]
+                traj = Trajectory(states=list(current_states), actions=list(current_actions), observations=current_obs)
                 traj.total_reward = reward_fn.compute(traj, task)
                 trajectories.append(traj)
                 return

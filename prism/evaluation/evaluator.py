@@ -28,7 +28,7 @@ class Evaluator:
             env = MiniGridEnv(env_id=env_config['env_id'])
             
             # Execute policy in the environment
-            obs = env.reset()
+            obs = env.reset(task)
             episode_return = 0.0
             done = False
             step_count = 0

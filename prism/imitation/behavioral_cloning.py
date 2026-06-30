@@ -27,13 +27,15 @@ class BehavioralCloning(BaseImitationLearner):
         all_states = []
         all_actions = []
         for traj in trajectories:
-            all_states.extend(traj.states[:-1]) # states has one more element than actions
+            states_to_use = traj.observations if (hasattr(traj, 'observations') and traj.observations) else traj.states
+            all_states.extend(states_to_use[:-1]) # states has one more element than actions
             all_actions.extend(traj.actions)
         
         if not all_states:
             return 0.0
             
-        states_tensor = torch.tensor(all_states, dtype=torch.float32, device=agent.device)
+        import numpy as np
+        states_tensor = torch.tensor(np.array(all_states), dtype=torch.float32, device=agent.device)
         actions_tensor = torch.tensor(all_actions, dtype=torch.long, device=agent.device)
         
         for _ in range(self.config.n_gradient_steps):
